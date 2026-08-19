@@ -5150,6 +5150,40 @@ def _build_active_models_data() -> dict:
                 }
             )
 
+        # DFlash primary-mode requests have no scheduler snapshot, so they are
+        # tracked as engine activities (get_activity_snapshot) instead of
+        # appearing in the scheduler's running set. Surface their "generate"
+        # activities as generating rows so the menubar and dashboard report
+        # live tok/s exactly like scheduler-driven requests: token_count is
+        # updated by the DFlash engine on every emitted token, so
+        # token_count / elapsed is a running tokens-per-second estimate.
+        generating_ids = {row["request_id"] for row in generating}
+        for activity in activities:
+            if activity.get("kind") != "generate":
+                continue
+            request_id = activity.get("request_id")
+            if not request_id or request_id in generating_ids:
+                continue
+            generating_ids.add(request_id)
+            generated_tokens = max(0, int(activity.get("token_count") or 0))
+            elapsed = activity.get("elapsed_seconds")
+            tokens_per_second = (
+                generated_tokens / elapsed if elapsed and elapsed > 0 else 0.0
+            )
+            generating.append(
+                {
+                    "request_id": request_id,
+                    "elapsed_seconds": elapsed,
+                    "generated_tokens": generated_tokens,
+                    "tokens_per_second": tokens_per_second,
+                    "last_activity_age_seconds": activity.get(
+                        "last_activity_age_seconds"
+                    ),
+                    "prompt_tokens": 0,
+                    "max_tokens": None,
+                }
+            )
+
         loading_started_at = model_info.get("loading_started_at")
         loading_elapsed_seconds = (
             max(0.0, now - loading_started_at) if loading_started_at else None
